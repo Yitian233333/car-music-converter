@@ -6,7 +6,7 @@ Windows 10 / 11 x64 本地音乐批量转换工具，将 KGM、KGMA、KGG 和完
 
 ## 下载与使用
 
-从 [Releases](https://github.com/Yitian233333/car-music-converter/releases) 下载 `随行音乐转换器-Windows-x64.zip`，完整解压后打开 `CarMusic.exe`。无需安装 Python 或 FFmpeg；请保留整个程序文件夹及 `_internal` 目录。
+从 [Releases](https://github.com/Yitian233333/car-music-converter/releases) 下载 Windows x64 便携 ZIP，完整解压后打开 `CarMusic.exe`。无需安装 Python 或 FFmpeg；请保留整个程序文件夹及 `_internal` 目录。
 
 1. 添加文件、文件夹，或点击“扫描酷狗缓存”。也支持拖入文件和文件夹。
 2. 选择 MP3、FLAC 或“原始格式”，设置输出目录。
