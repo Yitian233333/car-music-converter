@@ -1,6 +1,6 @@
 # 随行音乐转换器
 
-Windows 10 / 11 x64 本地音乐批量转换工具，将 KGM、KGMA、KGG 和完整音频缓存转换成 MP3、FLAC，或解密后保留原始音频格式，方便车载播放。
+Windows 10 / 11 x64 本地音乐与歌词批量转换工具。将 KGM、KGMA、KGG 和完整音频缓存转换成 MP3、FLAC 或原始音频，将酷狗 KRC 歌词解码成 LRC、TXT，方便车载播放。
 
 音频和酷狗数据库在本机处理，不上传文件，不登录账号，不请求在线密钥。请仅处理自己拥有使用权的音频。
 
@@ -8,8 +8,8 @@ Windows 10 / 11 x64 本地音乐批量转换工具，将 KGM、KGMA、KGG 和完
 
 从 [Releases](https://github.com/Yitian233333/car-music-converter/releases) 下载 Windows x64 便携 ZIP，完整解压后打开 `CarMusic.exe`。无需安装 Python 或 FFmpeg；请保留整个程序文件夹及 `_internal` 目录。
 
-1. 添加文件、文件夹，或点击“扫描酷狗缓存”。也支持拖入文件和文件夹。
-2. 选择 MP3、FLAC 或“原始格式”，设置输出目录。
+1. 添加音乐、歌词、文件夹，或点击“扫描酷狗缓存”。也支持拖入文件和文件夹。
+2. 分别设置音频格式与“歌词输出”（LRC / TXT），并选择输出目录。音频和歌词可以混合排队。
 3. 点击“开始批量转换”。完成后查看逐曲结果和输出目录中的 CSV 报告。
 
 转换只读取原文件。同名输出自动添加编号，不覆盖已有文件。取消后保留已完成的输出，清理当前临时文件。再次开始会重新处理队列，可能生成带编号的副本。
@@ -22,6 +22,19 @@ Windows 10 / 11 x64 本地音乐批量转换工具，将 KGM、KGMA、KGG 和完
 - 自动查找本机 `KGMusicV3.db`，也可手动选择数据库；访问受限的候选路径会提示并跳过。
 - 解密后检查文件头，编码后完整解码验证，通过检查才保存最终文件。
 - 图形界面与命令行共享转换实现，提供 CSV 结果报告。
+- KRC 解码、LRC 规范化及 TXT 导出不依赖歌曲密钥或 FFmpeg。已有翻译会与原文保存在同一行，保留同步歌词的时间和 offset 偏移。
+
+## 歌词转换
+
+添加 `.krc`、`.lrc` 或 `.txt`，在“歌词输出”选择 LRC 或 TXT 后开始转换。KRC 的逐字时间标签会转换为标准行级 LRC 时间标签，采用 UTF-8 编码、Windows 换行及百分之一秒精度。
+
+- LRC 保留原文与可对齐的翻译，去掉逐字标签和平台附加标识。已有翻译数据损坏时保留原文并报告提示。
+- TXT 去掉时间标签，保留歌词正文及翻译。原始 TXT 缺少时间信息时继续保存为 TXT，程序不会编造时间轴。
+- 自动清理酷狗缓存文件名末尾的哈希和下载编号，使文件名更便于与音乐配对。同名文件仍会添加编号，绝不覆盖。
+- 文件夹扫描会导入 KRC、LRC，以及歌词目录或带酷狗缓存后缀的 TXT。其他 TXT 可手动添加，避免把程序说明文件当作歌词。
+- 输出目录选在输入目录内部时会自动排除它。取消、损坏文件和解压体积限制都有单独处理。
+
+播放器通常要求歌词与音乐同名并放在同一目录；部分车机不支持外置歌词，具体以车机支持情况为准。
 
 ## 格式支持与实测范围
 
@@ -42,7 +55,10 @@ Windows 10 / 11 x64 本地音乐批量转换工具，将 KGM、KGMA、KGG 和完
 
 ## 已完成的验证
 
-版本 `1.0.1`，验证日期：2026-10-15。
+版本 `1.1.0`，验证日期：2026-10-15。以下音频验证来自 1.0.1；新增歌词验证使用 1.1.0。
+
+- 580 个真实 KRC 全部解码成功，4 个现有 LRC、6 个 TXT 也完成规范化或文本保留，共 590 个文件；同步歌词共 30,690 行。
+- 8 个自动化测试覆盖时间进位、offset、翻译、多时间标签、编码识别、损坏及截断文件、解压体积限制、取消清理、同名保护和文件夹扫描。
 
 - 252 首真实下载文件成功转换为 320 kbps、44.1 kHz、双声道 MP3，逐首完整解码通过，252 个原文件 SHA-256 均未改变。
 - 便携 EXE 对真实 KGM / KGG 分别测试 MP3 和 FLAC，共 4 个案例全部通过。抽测输出与解密后音频的时长差不超过 0.03 秒。
@@ -62,6 +78,8 @@ Windows 10 / 11 x64 本地音乐批量转换工具，将 KGM、KGMA、KGG 和完
 .\CarMusicCLI.exe --cli 'D:\MyMusic' --format flac --output 'D:\FLAC'
 .\CarMusicCLI.exe --cli --scan-kugou --format original --output 'D:\OriginalAudio'
 .\CarMusicCLI.exe --cli 'D:\MyMusic\song.kgg' --database 'D:\LocalData\KGMusicV3.db' --output 'D:\CarMusic'
+.\CarMusicCLI.exe --cli 'D:\Lyrics' --lyrics-only --lyric-format lrc --output 'D:\Lyrics-LRC'
+.\CarMusicCLI.exe --cli 'D:\Lyrics' --lyrics-only --lyric-format txt --output 'D:\Lyrics-TXT'
 ```
 
 返回值：`0` 全部成功，`1` 存在失败，`2` 没有发现文件或参数错误，`130` 键盘取消。CLI 默认不进行车载重采样，加 `--car` 才开启。
@@ -74,6 +92,7 @@ Windows 10 / 11 x64 本地音乐批量转换工具，将 KGM、KGMA、KGG 和完
 py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 .\.venv\Scripts\python.exe main.py
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
 .\.venv\Scripts\python.exe build_release.py
 ```
 
@@ -86,6 +105,7 @@ py -3 -m venv .venv
 | `car_music/discovery.py` | 文件及数据库发现 |
 | `car_music/convert.py` | 转换、校验和同名保护 |
 | `car_music/ui.py` | 桌面界面 |
+| `car_music/lyrics.py`、`tests/test_lyrics.py` | 歌词解码、导出及功能测试（仅含自制样本） |
 | `build_release.py`、`CarMusic.spec` | 便携程序构建与打包 |
 
 ## 开源许可

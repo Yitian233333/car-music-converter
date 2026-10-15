@@ -15,6 +15,7 @@ from typing import Callable
 
 from .crypto import AudioError, Cancelled, Library, decoder_for, sniff
 from .discovery import Track
+from .lyrics import LYRIC_EXTENSIONS, MAX_LYRIC_BYTES, parse_lyrics, read_text, render_lyrics
 
 CREATE_FLAGS = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
@@ -25,6 +26,7 @@ class Options:
     format: str = "mp3"
     bitrate: int = 320
     car_mode: bool = True
+    lyric_format: str = "lrc"
 
 
 @dataclass
@@ -142,6 +144,8 @@ def publish_new(source: Path, directory: Path, stem: str, extension: str) -> Pat
 
 def convert_one(track: Track, options: Options, library: Library, stop: threading.Event,
                 progress: Callable[[int, str], None] = lambda percent, message: None) -> Result:
+    if track.path.suffix.lower() in LYRIC_EXTENSIONS:
+        return convert_lyric(track, options, stop, progress)
     started = time.monotonic()
     check_cancel(stop)
     if options.format not in ("mp3", "flac", "original") or options.bitrate not in (128, 192, 256, 320):
@@ -224,3 +228,34 @@ def convert_one(track: Track, options: Options, library: Library, stop: threadin
             destination = publish_new(final, output, stem, destination_format)
             progress(100, "已完成")
     return Result(str(track.path), "成功", str(destination), source_format, note, round(time.monotonic() - started, 2))
+
+
+def convert_lyric(track: Track, options: Options, stop: threading.Event,
+                  progress: Callable[[int, str], None]) -> Result:
+    started = time.monotonic()
+    check_cancel(stop)
+    before = track.path.stat()
+    if before.st_size > MAX_LYRIC_BYTES:
+        raise AudioError("歌词文件过大，未处理。")
+    progress(10, "正在解码歌词")
+    with track.path.open("rb") as stream:
+        text = read_text(stream.read(MAX_LYRIC_BYTES + 1), track.path.suffix.lower())
+    document = parse_lyrics(text, track.path.suffix.lower())
+    content, extension, note = render_lyrics(document, options.lyric_format)
+    after = track.path.stat()
+    if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+        raise AudioError("歌词文件在转换期间发生变化，请等下载完成后重试。")
+    check_cancel(stop)
+    output = options.output.expanduser().resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    progress(70, "正在保存歌词")
+    with tempfile.TemporaryDirectory(prefix=".car-music-", dir=output) as temporary:
+        final = Path(temporary) / ("lyrics." + extension)
+        final.write_text(content, encoding="utf-8", newline="\r\n")
+        saved = final.read_text(encoding="utf-8")
+        if saved != content or (extension == "lrc" and not parse_lyrics(saved, ".lrc").lines):
+            raise AudioError("输出歌词完整性验证失败，未保存。")
+        check_cancel(stop)
+        destination = publish_new(final, output, safe_stem(track.name), extension)
+    progress(100, "已完成")
+    return Result(str(track.path), "成功", str(destination), track.path.suffix[1:], note, round(time.monotonic() - started, 2))

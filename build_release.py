@@ -48,7 +48,7 @@ def main(package_only=False):
                     'README.md', 'THIRD_PARTY.md', 'LICENSE', '.gitignore']
         for name in includes:
             archive.write(ROOT / name, name)
-        for directory in ('car_music', 'assets', 'licenses'):
+        for directory in ('car_music', 'assets', 'licenses', 'tests'):
             for path in (ROOT / directory).rglob('*'):
                 if path.is_file() and '__pycache__' not in path.parts and path.suffix != '.pyc':
                     archive.write(path, path.relative_to(ROOT))

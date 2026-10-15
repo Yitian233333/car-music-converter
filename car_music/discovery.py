@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Callable
 
 from .crypto import KGM_MAGIC, VPR_MAGIC, Library, sniff
+from .lyrics import CACHE_SUFFIX, LYRIC_EXTENSIONS, lyric_stem
 
-EXTENSIONS = {".kgm", ".kgma", ".kgg", ".kge", ".vpr", ".flac", ".mp3", ".wav", ".ogg", ".m4a", ".aac", ".wma"}
+EXTENSIONS = {".kgm", ".kgma", ".kgg", ".kge", ".vpr", ".flac", ".mp3", ".wav", ".ogg", ".m4a", ".aac", ".wma"} | LYRIC_EXTENSIONS
 HASH_NAME = re.compile(r"^[0-9a-f]{32}$", re.I)
 
 
@@ -83,6 +84,10 @@ def track_from_path(path: Path, library: Library, explicit: bool = False) -> Tra
     if not explicit and path.suffix.lower() not in EXTENSIONS and not is_hash:
         return None
     size = path.stat().st_size
+    if path.suffix.lower() in LYRIC_EXTENSIONS:
+        if path.suffix.lower() == ".txt" and not explicit and path.parent.name.lower() not in ("lyric", "lyrics", "歌词") and not CACHE_SUFFIX.search(path.stem):
+            return None
+        return Track(path, lyric_stem(path.stem), path.suffix[1:].upper() + " 歌词", size)
     if size < 16:
         return Track(path, path.name, "文件不完整", size) if explicit else None
     with path.open("rb") as f:

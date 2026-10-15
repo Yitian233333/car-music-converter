@@ -2,6 +2,8 @@
 
 本应用没有调用任何音乐平台在线服务，也不包含账户信息或私人密钥数据库。
 
+KRC 解码根据公开格式信息独立实现：固定 XOR 后进行 zlib 解压。格式与常量交叉参考 https://github.com/kangkang520/kugou-lyric/blob/master/src/util.ts 和 https://github.com/kangkang520/kugou-lyric/blob/master/src/consts.ts 。未复制其联网请求、搜索、解析器代码或歌词样本。运行时使用 Python 标准库 zlib / JSON / Base64；不访问歌词平台服务。
+
 | 组件 | 来源 | 许可 |
 |---|---|---|
 | KGM v3/v5、PC 酷狗数据库、TEA / QMC2 与独立测试向量 | Unlock Music CLI v0.2.12，https://proxy.golang.org/unlock-music.dev/cli/@v/v0.2.12.zip | MIT，见 `licenses/Unlock-Music-MIT.txt` |

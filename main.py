@@ -9,12 +9,14 @@ from pathlib import Path
 
 
 def main():
-    parser = argparse.ArgumentParser(description="随行音乐转换器：本地批量转换 KGM / KGMA / KGG 和完整缓存")
+    parser = argparse.ArgumentParser(description="随行音乐转换器：本地批量转换音频及 KRC / LRC / TXT 歌词")
     parser.add_argument("inputs", nargs="*", type=Path)
     parser.add_argument("--cli", action="store_true", help="使用命令行；默认打开桌面窗口")
     parser.add_argument("--scan-kugou", action="store_true", help="扫描本机酷狗默认目录")
     parser.add_argument("--output", type=Path, default=Path("已转换"))
     parser.add_argument("--format", choices=["mp3", "flac", "original"], default="mp3")
+    parser.add_argument("--lyric-format", choices=["lrc", "txt"], default="lrc", help="歌词输出格式，与音频格式独立；默认 LRC")
+    parser.add_argument("--lyrics-only", action="store_true", help="只处理 KRC / LRC / TXT 歌词")
     parser.add_argument("--bitrate", type=int, choices=[128, 192, 256, 320], default=320)
     parser.add_argument("--car", action="store_true", help="44.1 kHz 双声道；FLAC 16 bit")
     parser.add_argument("--database", default="", help="自定义本机 KGMusicV3.db 路径")
@@ -38,7 +40,10 @@ def main():
     if not paths:
         parser.error("请给出输入文件或文件夹，或使用 --scan-kugou。")
     tracks, errors = scan_paths(paths, library, excluded=args.output.resolve())
-    options = Options(args.output, args.format, args.bitrate, args.car)
+    if args.lyrics_only:
+        from car_music.lyrics import LYRIC_EXTENSIONS
+        tracks = [track for track in tracks if track.path.suffix.lower() in LYRIC_EXTENSIONS]
+    options = Options(args.output, args.format, args.bitrate, args.car, args.lyric_format)
     stop = threading.Event()
     results = []
     for error in library.errors + errors:
@@ -59,7 +64,7 @@ def main():
             args.output.mkdir(parents=True, exist_ok=True)
             export_results(args.output / f"转换报告-{time.time_ns()}.csv", results)
     if not tracks:
-        print("未发现可处理的音频文件。", file=sys.stderr)
+        print("未发现可处理的音频或歌词文件。", file=sys.stderr)
         return 2
     return 1 if any(r.status != "成功" for r in results) else 0
 

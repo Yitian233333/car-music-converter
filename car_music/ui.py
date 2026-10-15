@@ -12,7 +12,7 @@ from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QIcon,
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton,
-    QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget,
+    QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget, QScrollArea,
 )
 
 from . import __version__
@@ -43,6 +43,10 @@ def app_icon() -> QIcon:
 
 STYLE = """
 QMainWindow { background: #EFF4F8; }
+QWidget#settingsViewport { background: #EFF4F8; }
+QScrollBar:vertical { background: #EFF4F8; width: 10px; margin: 0; }
+QScrollBar::handle:vertical { background: #C5D6E3; min-height: 35px; border-radius: 4px; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 QWidget { color: #203A4E; font-size: 13px; }
 QLabel#title { font-size: 27px; font-weight: 700; color: #163C59; }
 QLabel#subtitle, QLabel#muted { color: #627989; }
@@ -210,6 +214,15 @@ class Window(QMainWindow):
         self.format_note.setWordWrap(True)
         self.format_note.setMinimumHeight(52)
         sl.addWidget(self.format_note)
+        lyric_row = QHBoxLayout()
+        lyric_row.addWidget(QLabel("歌词输出"))
+        self.lyric_format = QComboBox()
+        self.lyric_format.addItem("LRC · 同步歌词", "lrc")
+        self.lyric_format.addItem("TXT · 纯文本", "txt")
+        self.lyric_format.setCurrentIndex(max(0, self.lyric_format.findData(settings.get("lyric_format", "lrc"))))
+        self.lyric_format.setToolTip("KRC 自动解码；已有翻译会保留。纯 TXT 无时间轴，会继续保存为 TXT。")
+        lyric_row.addWidget(self.lyric_format, 1)
+        sl.addLayout(lyric_row)
         sl.addWidget(QLabel("MP3 码率"))
         self.bitrate = QComboBox()
         for value in (320, 256, 192, 128):
@@ -248,7 +261,17 @@ class Window(QMainWindow):
         self.reload = QPushButton("重新扫描密钥库")
         self.reload.clicked.connect(lambda: self.scan([], load_only=True))
         sl.addWidget(self.reload)
-        body.addWidget(side)
+        # Keep every control reachable on smaller displays as options grow.
+        side.setMinimumWidth(280)
+        side.setMaximumWidth(296)
+        side_scroll = QScrollArea()
+        side_scroll.setFixedWidth(312)
+        side_scroll.setWidgetResizable(True)
+        side_scroll.viewport().setObjectName("settingsViewport")
+        side_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        side_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        side_scroll.setWidget(side)
+        body.addWidget(side_scroll)
 
         main = QVBoxLayout()
         main.setSpacing(12)
@@ -283,7 +306,7 @@ class Window(QMainWindow):
         subtools.addStretch()
         main.addLayout(subtools)
         self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["歌曲 / 文件名", "源格式", "大小", "状态"])
+        self.table.setHorizontalHeaderLabels(["歌曲 / 歌词文件", "源格式", "大小", "状态"])
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -297,12 +320,12 @@ class Window(QMainWindow):
         self.table.cellDoubleClicked.connect(self.open_item)
         self.table.setToolTip("双击成功记录定位输出文件；其他记录显示源文件所在目录。")
         main.addWidget(self.table, 1)
-        self.empty = self.label("拖入音乐文件或文件夹，也可以扫描本机酷狗缓存。", "empty")
+        self.empty = self.label("拖入音乐、KRC 歌词或文件夹，也可以扫描酷狗目录。", "empty")
         self.empty.setWordWrap(True)
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty.setMinimumHeight(55)
         main.addWidget(self.empty)
-        self.status = QLabel("支持 KGM、KGMA、KGG；也可识别无扩展名的完整缓存。")
+        self.status = QLabel("支持 KGM、KGMA、KGG 音频和 KRC、LRC、TXT 歌词。")
         self.status.setWordWrap(True)
         self.status.setMinimumHeight(40)
         main.addWidget(self.status)
@@ -357,6 +380,7 @@ class Window(QMainWindow):
                        self.clear_button, self.db_button, self.reload, self.choose_output_button):
             button.setEnabled(not busy)
         self.output.setEnabled(not busy)
+        self.lyric_format.setEnabled(not busy)
         self.format.setEnabled(not busy)
         self.bitrate.setEnabled(not busy and self.format.currentData() == "mp3")
         self.car_mode.setEnabled(not busy and self.format.currentData() != "original")
@@ -371,7 +395,7 @@ class Window(QMainWindow):
         self.status.setText("正在读取密钥库…" if load_only else "正在扫描文件头，识别下载文件和缓存…")
         self.progress.setRange(0, 0)
         worker = ScanWorker(paths, self.custom_db, Path(self.output.text()).resolve(), automatic, load_only)
-        worker.count.connect(lambda count: self.status.setText(f"已发现 {count} 个候选音频文件…"))
+        worker.count.connect(lambda count: self.status.setText(f"已发现 {count} 个音频或歌词文件…"))
         worker.completed.connect(self.scan_complete)
         worker.finished.connect(self.scan_finished)
         self.worker = worker
@@ -387,7 +411,8 @@ class Window(QMainWindow):
             row = self.table.rowCount()
             self.table.insertRow(row)
             self.tracks.append(track)
-            for column, value in enumerate((track.name, track.kind, f"{track.size / 1024 / 1024:.1f} MB", "等待转换")):
+            size = f"{track.size / 1024:.1f} KB" if track.size < 1024 * 1024 else f"{track.size / 1024 / 1024:.1f} MB"
+            for column, value in enumerate((track.name, track.kind, size, "等待转换")):
                 item = QTableWidgetItem(value)
                 item.setToolTip(str(track.path))
                 self.table.setItem(row, column, item)
@@ -395,7 +420,7 @@ class Window(QMainWindow):
             self.key_status.setText(f"已读取 {len(library.databases)} 个数据库\n新版歌曲密钥：{len(library.keys)} 条")
             self.key_status.setToolTip("\n".join(library.databases))
         else:
-            self.key_status.setText("未找到可读取的酷狗数据库。\n旧版 KGM 仍可直接转换。")
+            self.key_status.setText("未找到可读取的酷狗数据库。\nKGM v3 和歌词仍可直接转换。")
         unknown = sum("待验证" in t.kind for t in self.tracks)
         self.counter.setText(f"{len(self.tracks)} 首")
         self.empty.setVisible(not self.tracks)
@@ -413,7 +438,7 @@ class Window(QMainWindow):
         self.set_busy(False)
 
     def add_files(self):
-        names, _ = QFileDialog.getOpenFileNames(self, "选择本机音频文件", "", "音乐文件 (*.kgm *.kgma *.kgg *.flac *.mp3 *.wav *.ogg *.m4a *.aac *.vpr);;所有文件 (*)")
+        names, _ = QFileDialog.getOpenFileNames(self, "选择本机音乐或歌词", "", "音乐与歌词 (*.kgm *.kgma *.kgg *.flac *.mp3 *.wav *.ogg *.m4a *.aac *.vpr *.krc *.lrc *.txt);;歌词 (*.krc *.lrc *.txt);;所有文件 (*)")
         if names:
             self.scan([Path(p) for p in names])
 
@@ -479,7 +504,7 @@ class Window(QMainWindow):
         for row in range(len(self.tracks)):
             self.table.item(row, 3).setText("等待转换")
             self.table.item(row, 3).setForeground(QColor("#203A4E"))
-        options = Options(Path(self.output.text()), self.format.currentData(), self.bitrate.currentData(), self.car_mode.isChecked())
+        options = Options(Path(self.output.text()), self.format.currentData(), self.bitrate.currentData(), self.car_mode.isChecked(), self.lyric_format.currentData())
         self.set_busy(True)
         self.progress.setRange(0, 1000)
         self.progress.setValue(0)
@@ -545,7 +570,7 @@ class Window(QMainWindow):
 
     def save_settings(self):
         settings = {"output": self.output.text(), "format": self.format.currentData(), "bitrate": self.bitrate.currentData(),
-                    "car_mode": self.car_mode.isChecked(), "database": self.custom_db}
+                    "car_mode": self.car_mode.isChecked(), "database": self.custom_db, "lyric_format": self.lyric_format.currentData()}
         try:
             self.settings_path.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
         except OSError:
