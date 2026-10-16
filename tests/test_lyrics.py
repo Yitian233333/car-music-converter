@@ -61,6 +61,21 @@ class LyricTests(unittest.TestCase):
         self.assertNotIn("[00:", text)
         self.assertTrue(note)
 
+    def test_windows_and_legacy_text_newlines_export_without_loss(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for newline in (b'\n', b'\r\n', b'\r'):
+                source = root / 'source.txt'
+                original = newline.join([b'First', b'Second', b''])
+                source.write_bytes(original)
+                for requested in ('lrc', 'txt'):
+                    with self.subTest(newline=newline, requested=requested):
+                        result = convert_one(track_from_path(source, Library(), explicit=True),
+                                             Options(root/'output', lyric_format=requested), Library(), threading.Event())
+                        self.assertEqual(Path(result.output).suffix, '.txt')
+                        self.assertEqual(Path(result.output).read_bytes(), b'First\r\nSecond\r\n')
+                        self.assertEqual(source.read_bytes(), original)
+
     def test_malformed_timing_never_saves_partial_lyrics(self):
         for text, extension in (("[00:99.00]Example", ".lrc"), ("[0,10]Example\nbroken line", ".krc")):
             with self.subTest(extension=extension), self.assertRaises(AudioError):

@@ -16,7 +16,8 @@ from PySide6.QtWidgets import (
 )
 
 from . import __version__
-from .convert import Options, Result, convert_one
+from .batch import BatchConverter
+from .convert import Options, Result
 from .crypto import AudioError, Cancelled, Library
 from .discovery import EXTENSIONS, Track, load_library, music_roots, scan_paths
 from .reports import export_results
@@ -133,12 +134,12 @@ class BatchWorker(QThread):
 
     def run(self):
         results = []
-        for row, track in self.jobs:
+        batch = BatchConverter(self.jobs, self.options, self.library, self.stop)
+        for row, track in batch.jobs:
             if self.stop.is_set():
                 break
             try:
-                result = convert_one(track, self.options, self.library, self.stop,
-                                     lambda p, text, r=row: self.changed.emit(r, p, text))
+                result = batch.convert(row, track, lambda p, text, r=row: self.changed.emit(r, p, text))
             except Cancelled as exc:
                 result = Result(str(track.path), "已取消", note=str(exc))
             except Exception as exc:
@@ -429,7 +430,9 @@ class Window(QMainWindow):
         else:
             self.status.setText("密钥库检查完成。添加文件或扫描酷狗缓存，即可开始。" if not self.tracks else f"队列 {len(self.tracks)} 首，准备就绪。")
         for error in errors[:30]:
-            self.log.append(error)
+            self.log.append(str(error))
+        if errors and not tracks:
+            self.status.setText(f"导入未完成：{errors[0]}")
 
     def scan_finished(self):
         self.worker = None

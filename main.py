@@ -9,7 +9,9 @@ from pathlib import Path
 
 
 def main():
+    from car_music import __version__
     parser = argparse.ArgumentParser(description="随行音乐转换器：本地批量转换音频及 KRC / LRC / TXT 歌词")
+    parser.add_argument('--version', action='version', version=f'CarMusic {__version__}')
     parser.add_argument("inputs", nargs="*", type=Path)
     parser.add_argument("--cli", action="store_true", help="使用命令行；默认打开桌面窗口")
     parser.add_argument("--scan-kugou", action="store_true", help="扫描本机酷狗默认目录")
@@ -29,12 +31,13 @@ def main():
         from car_music.ui import run_gui
         return run_gui(args.inputs)
 
-    from car_music.convert import Options, Result, convert_one
-    from car_music.crypto import Cancelled
+    from car_music.batch import BatchConverter
+    from car_music.convert import Options, Result
     from car_music.discovery import load_library, music_roots, scan_paths
     from car_music.reports import export_results
     import time
 
+    args.output = args.output.expanduser().resolve()
     library = load_library(args.database)
     paths = music_roots() if args.scan_kugou else args.inputs
     if not paths:
@@ -45,13 +48,17 @@ def main():
         tracks = [track for track in tracks if track.path.suffix.lower() in LYRIC_EXTENSIONS]
     options = Options(args.output, args.format, args.bitrate, args.car, args.lyric_format)
     stop = threading.Event()
-    results = []
+    results = [Result(issue.source, "失败", note=issue.note) for issue in errors]
     for error in library.errors + errors:
         print(error, file=sys.stderr)
+    for result in results:
+        print(json.dumps(asdict(result), ensure_ascii=False))
+    batch = BatchConverter(list(enumerate(tracks)), options, library, stop)
+    report_failed = False
     try:
-        for track in tracks:
+        for row, track in batch.jobs:
             try:
-                result = convert_one(track, options, library, stop)
+                result = batch.convert(row, track)
             except Exception as exc:
                 result = Result(str(track.path), "失败", note=str(exc))
             results.append(result)
@@ -61,12 +68,16 @@ def main():
         return 130
     finally:
         if results:
-            args.output.mkdir(parents=True, exist_ok=True)
-            export_results(args.output / f"转换报告-{time.time_ns()}.csv", results)
+            try:
+                args.output.mkdir(parents=True, exist_ok=True)
+                export_results(args.output / f"转换报告-{time.time_ns()}.csv", results)
+            except OSError as exc:
+                print(f"转换报告保存失败：{exc}", file=sys.stderr)
+                report_failed = True
     if not tracks:
         print("未发现可处理的音频或歌词文件。", file=sys.stderr)
-        return 2
-    return 1 if any(r.status != "成功" for r in results) else 0
+        return 1 if errors or report_failed else 2
+    return 1 if report_failed or any(r.status != "成功" for r in results) else 0
 
 
 if __name__ == "__main__":

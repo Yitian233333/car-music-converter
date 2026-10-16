@@ -15,7 +15,7 @@ from typing import Callable
 
 from .crypto import AudioError, Cancelled, Library, decoder_for, sniff
 from .discovery import Track
-from .lyrics import LYRIC_EXTENSIONS, MAX_LYRIC_BYTES, parse_lyrics, read_text, render_lyrics
+from .lyrics import LYRIC_EXTENSIONS, MAX_LYRIC_BYTES, lyric_stem, parse_lyrics, read_text, render_lyrics
 
 CREATE_FLAGS = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
@@ -119,16 +119,21 @@ def inspect_tags(path: Path, stop: threading.Event) -> dict:
     return tags
 
 
-def publish_new(source: Path, directory: Path, stem: str, extension: str) -> Path:
+def publish_new(source: Path, directory: Path, stem: str, extension: str,
+                companions: tuple[str, ...] = (), exact: bool = False) -> Path:
     """Create a new name atomically. Never overwrite any existing user file."""
     for index in range(1, 100000):
         name = f"{stem}.{extension}" if index == 1 else f"{stem} ({index}).{extension}"
         dest = directory / name
+        if any(dest.with_suffix('.' + suffix).exists() for suffix in companions):
+            continue
         try:
             # Both files are on the same volume. Hard-link creation is atomic and no-clobber.
             os.link(source, dest)
             return dest
         except FileExistsError:
+            if exact:
+                raise AudioError("配对歌词的目标文件已存在，未覆盖；请更换输出目录后重新导出这一组音频和歌词。")
             continue
         except OSError:
             # exFAT/FAT32 do not support hard links. Windows rename is also no-clobber.
@@ -137,15 +142,18 @@ def publish_new(source: Path, directory: Path, stem: str, extension: str) -> Pat
                     os.rename(source, dest)
                     return dest
                 except FileExistsError:
+                    if exact:
+                        raise AudioError("配对歌词的目标文件已存在，未覆盖；请更换输出目录后重新导出这一组音频和歌词。")
                     continue
             raise AudioError("无法保存输出文件，请选择可写入的本地目录并检查剩余空间。")
     raise AudioError("同名文件过多，请更换输出目录。")
 
 
 def convert_one(track: Track, options: Options, library: Library, stop: threading.Event,
-                progress: Callable[[int, str], None] = lambda percent, message: None) -> Result:
+                progress: Callable[[int, str], None] = lambda percent, message: None, *,
+                output_stem: str | None = None, companions: tuple[str, ...] = (), exact: bool = False) -> Result:
     if track.path.suffix.lower() in LYRIC_EXTENSIONS:
-        return convert_lyric(track, options, stop, progress)
+        return convert_lyric(track, options, stop, progress, output_stem=output_stem, exact=exact)
     started = time.monotonic()
     check_cancel(stop)
     if options.format not in ("mp3", "flac", "original") or options.bitrate not in (128, 192, 256, 320):
@@ -184,7 +192,7 @@ def convert_one(track: Track, options: Options, library: Library, stop: threadin
                 raise AudioError("音频内容为空。")
             tags = inspect_tags(decoded, stop)
             duration = tags.get("duration", 0)
-            stem = track.name
+            stem = lyric_stem(track.name)
             if tags.get("title"):
                 stem = f"{tags['artist']} - {tags['title']}" if tags.get("artist") else tags["title"]
             stem = safe_stem(stem)
@@ -225,13 +233,14 @@ def convert_one(track: Track, options: Options, library: Library, stop: threadin
             if final.stat().st_size < 16:
                 raise AudioError("输出文件为空，未保存。")
             check_cancel(stop)
-            destination = publish_new(final, output, stem, destination_format)
+            destination = publish_new(final, output, stem, destination_format, companions)
             progress(100, "已完成")
     return Result(str(track.path), "成功", str(destination), source_format, note, round(time.monotonic() - started, 2))
 
 
 def convert_lyric(track: Track, options: Options, stop: threading.Event,
-                  progress: Callable[[int, str], None]) -> Result:
+                  progress: Callable[[int, str], None], *, output_stem: str | None = None,
+                  exact: bool = False) -> Result:
     started = time.monotonic()
     check_cancel(stop)
     before = track.path.stat()
@@ -256,6 +265,9 @@ def convert_lyric(track: Track, options: Options, stop: threading.Event,
         if saved != content or (extension == "lrc" and not parse_lyrics(saved, ".lrc").lines):
             raise AudioError("输出歌词完整性验证失败，未保存。")
         check_cancel(stop)
-        destination = publish_new(final, output, safe_stem(track.name), extension)
+        # A paired stem has already been sanitized and may include a collision
+        # suffix beyond the normal stem length limit. Preserve it byte-for-byte.
+        stem = output_stem if output_stem is not None else safe_stem(track.name)
+        destination = publish_new(final, output, stem, extension, exact=exact)
     progress(100, "已完成")
     return Result(str(track.path), "成功", str(destination), track.path.suffix[1:], note, round(time.monotonic() - started, 2))

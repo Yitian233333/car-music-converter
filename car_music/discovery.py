@@ -23,6 +23,15 @@ class Track:
     metadata: dict = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class ScanIssue:
+    source: str
+    note: str
+
+    def __str__(self) -> str:
+        return f"{self.source}：{self.note}"
+
+
 def database_candidates(errors: list[str] | None = None) -> list[Path]:
     dirs = [Path.cwd()]
     for var in ("APPDATA", "LOCALAPPDATA", "PUBLIC"):
@@ -113,8 +122,9 @@ def track_from_path(path: Path, library: Library, explicit: bool = False) -> Tra
     return Track(path, display or path.stem, kind, size, metadata)
 
 
-def scan_paths(paths: list[Path], library: Library, cancelled: Callable[[], bool] = lambda: False, progress: Callable[[int], None] = lambda n: None, excluded: Path | None = None) -> tuple[list[Track], list[str]]:
+def scan_paths(paths: list[Path], library: Library, cancelled: Callable[[], bool] = lambda: False, progress: Callable[[int], None] = lambda n: None, excluded: Path | None = None) -> tuple[list[Track], list[ScanIssue]]:
     tracks, errors, seen = [], [], set()
+    excluded = excluded.expanduser().resolve() if excluded else None
     skip_dirs = {".git", ".venv", "node_modules", "$RECYCLE.BIN", "System Volume Information", "_internal", ".car-music-work"}
 
     def add(path: Path, explicit: bool = False):
@@ -131,20 +141,32 @@ def scan_paths(paths: list[Path], library: Library, cancelled: Callable[[], bool
                 if len(tracks) % 20 == 0:
                     progress(len(tracks))
         except (OSError, ValueError) as exc:
-            errors.append(f"{path.name}：{exc}")
+            errors.append(ScanIssue(str(path), str(exc)))
 
     for path in paths:
         if cancelled():
             break
-        if path.is_file():
-            add(path, True)
-        elif path.is_dir():
-            for directory, subdirs, files in os.walk(path, followlinks=False, onerror=lambda e: errors.append(str(e))):
-                subdirs[:] = [n for n in subdirs if n not in skip_dirs and not (excluded and Path(directory, n).resolve() == excluded)]
-                if cancelled():
-                    break
-                for filename in files:
+        path = path.expanduser()
+        try:
+            resolved = path.resolve()
+            if excluded and (resolved == excluded or excluded in resolved.parents):
+                errors.append(ScanIssue(str(path), "输出目录与输入目录相同，或包含了输入文件；请选择独立输出目录或输入目录内的子目录后重试。"))
+                continue
+            if path.is_file():
+                add(path, True)
+            elif path.is_dir():
+                def walk_error(error):
+                    errors.append(ScanIssue(str(error.filename or path), str(error)))
+                for directory, subdirs, files in os.walk(path, followlinks=False, onerror=walk_error):
+                    subdirs[:] = [n for n in subdirs if n not in skip_dirs and not (excluded and Path(directory, n).resolve() == excluded)]
                     if cancelled():
                         break
-                    add(Path(directory, filename))
+                    for filename in files:
+                        if cancelled():
+                            break
+                        add(Path(directory, filename))
+            else:
+                errors.append(ScanIssue(str(path), "输入不存在，或不是可读取的文件或文件夹。"))
+        except (OSError, ValueError) as exc:
+            errors.append(ScanIssue(str(path), str(exc)))
     return tracks, errors

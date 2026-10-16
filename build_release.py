@@ -9,6 +9,8 @@ import sys
 import zipfile
 from pathlib import Path
 
+from car_music import __version__
+
 ROOT = Path(__file__).resolve().parent
 
 
@@ -52,7 +54,7 @@ def main(package_only=False):
             for path in (ROOT / directory).rglob('*'):
                 if path.is_file() and '__pycache__' not in path.parts and path.suffix != '.pyc':
                     archive.write(path, path.relative_to(ROOT))
-    target = ROOT / 'release/随行音乐转换器-Windows-x64.zip'
+    target = ROOT / f'release/CarMusic-{__version__}-Windows-x64.zip'
     with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as archive:
         # Allowlist deliverables: never include settings, converted songs or reports
         # that a user may have saved inside their existing portable folder.

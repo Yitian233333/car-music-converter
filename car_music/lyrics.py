@@ -83,7 +83,9 @@ def parse_lyrics(text: str, extension: str) -> Lyrics:
     if extension == ".txt":
         if not text.strip():
             raise AudioError("歌词内容为空。")
-        return Lyrics([], [], plain=text.strip())
+        # Keep one newline convention in memory. write_text translates LF to
+        # CRLF once; retaining CRLF here would produce CRCRLF and fail readback.
+        return Lyrics([], [], plain=text.replace("\r\n", "\n").replace("\r", "\n").strip())
     metadata, lines, language = [], [], ""
     for raw in text.splitlines():
         raw = raw.strip()
